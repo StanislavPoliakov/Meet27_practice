@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Meet27_practice</string>
+    <string name="progress_bar">Загружаем изображения в галлерею&#8230;</string>
+</resources>
