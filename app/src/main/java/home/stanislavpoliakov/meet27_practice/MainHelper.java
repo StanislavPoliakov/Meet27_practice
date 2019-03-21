@@ -20,6 +20,7 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.HashSet;
+import java.util.IntSummaryStatistics;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -34,19 +35,19 @@ public class MainHelper {
     private MainCallback mActivity;
 
 
-    //private Set<String> resourceSet;
-
     public MainHelper(Context context) {
+
+        // Получаем контекст для ContentResolver
         this.context = context;
 
         try {
             mActivity = (MainCallback) context;
         } catch (ClassCastException ex) {
-            Log.w(TAG, "Main Activity must iplement MainCallback interface", ex);
+            Log.w(TAG, "Main Activity must implement MainCallback interface", ex);
         }
     }
 
-    private class DownloadAndSaveTask extends AsyncTask<Void, Integer, Void> {
+    private class DownloadAndSaveTask extends AsyncTask<Void, Integer, Integer> {
         private int progress;
 
         @Override
@@ -55,37 +56,35 @@ public class MainHelper {
             progress = 0;
         }
 
+
         /**
          * Метод асинхронной работы
          * @param voids ничего не принимает
          * @return результат работы
          */
+
         @Override @WorkerThread
-        protected Void doInBackground(Void... voids) {
+        protected Integer doInBackground(Void... voids) {
             // Очищаем галлерею, чтобы не переполнять устройство загрузкой. Поскольку работаем на
             // эмуляторе - очищаем всю. Конечно, на реальном устройстве очистка была бы выборочной
             clearStorage();
 
-            // Получаем Stream коллекции и сохраняем каждый элемент в галлерее
-            //getCollection().forEach(MainHelper.this::saveBitmap);
 
-            initResourceSet().stream().parallel()
+            // Собираем статистику по id загруженных картинок
+            IntSummaryStatistics summary = initResourceSet().stream().parallel()
                     .map(MainHelper.this::stringToUrl)
                     .map(MainHelper.this::getBitmap)
-                    .peek(MainHelper.this::saveBitmap)
-                    .forEach(b -> publishProgress(1));
+                    .map(MainHelper.this::saveBitmap)
+                    .peek(b -> publishProgress(1))
+                    .collect(Collectors.summarizingInt(MainHelper.this::getIdFromUriString));
 
-            //Log.d(TAG, "doInBackground: Thread = " + Thread.currentThread());
-            // Загружаем данные из галлереи и возращаем
-            //return loadCollection();
-            return null;
+            // Возвращаем в Callback минимальное значение (то есть id первой картинки)
+            return summary.getMin();
         }
 
         @Override
         protected void onProgressUpdate(Integer... values) {
-            //super.onProgressUpdate(values);
             progress += values[0];
-            //Log.d(TAG, "onProgressUpdate: Thread = " + Thread.currentThread());
             mActivity.updateProgress(progress);
         }
 
@@ -93,24 +92,8 @@ public class MainHelper {
          * После окончания раоты прячем ProgressBar и инициализируем переменные
          */
         @Override @UiThread
-        protected void onPostExecute(Void aVoid) {
-            mActivity.preparingDone();
-            //setGroupVisibility(View.GONE);
-
-            // Сохраняем результат работы
-            /*data = bitmaps;
-
-            // Инициализируем адаптер RecyclerView коллекцией изображений
-            RecyclerViewAdapter mAdapter = new RecyclerViewAdapter(MainActivity.this,
-                    new ArrayList<>(data.keySet()));
-
-            // Отображать будем сеткой в 4 колонки
-            GridLayoutManager layoutManager =
-                    new GridLayoutManager(MainActivity.this, 4,
-                            GridLayoutManager.VERTICAL, false);
-
-            recyclerView.setAdapter(mAdapter);
-            recyclerView.setLayoutManager(layoutManager);*/
+        protected void onPostExecute(Integer firstId) {
+            mActivity.preparingDone(firstId);
         }
     }
 
@@ -159,9 +142,22 @@ public class MainHelper {
      * Метод сохранения загруженной картинки в формате Bitmap в галлерею устройства
      * @param bitmap загруженная картинка
      */
-    private void saveBitmap(Bitmap bitmap) {
-        MediaStore.Images.Media.insertImage(context.getContentResolver(), bitmap,
+    private String saveBitmap(Bitmap bitmap) {
+        String stringId = MediaStore.Images.Media.insertImage(context.getContentResolver(), bitmap,
                 "Bitmap", "Bitmap image");
+        Log.d(TAG, "saveBitmap: id = " + stringId);
+        return stringId;
+    }
+
+    /**
+     * Метод получения числового значения ID из Uri-адреса сохраненной картинки в формате String
+     * @param uriString адрес сохраненной в хранилище картинки
+     * @return числовое значение ID
+     */
+    private int getIdFromUriString(String uriString) {
+        Uri uri = Uri.parse(uriString);
+        String stringId = uri.getLastPathSegment();
+        return Integer.parseInt(stringId);
     }
 
     /**
